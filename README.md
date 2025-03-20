@@ -2,6 +2,8 @@
 
 ### Indian-Financial-Market-App
 
+App Link: https://37xwbmmtknahg3ar4j5rhg.streamlit.app/
+
 
 Screeenshot
 ![image](https://github.com/user-attachments/assets/ed59cc71-9399-4b2c-8be8-467f31db1a89)
