@@ -2361,16 +2361,17 @@ else:
                             changes.append(change_value)
                             colors.append("green" if change_value >= 0 else "red")
                         
-                        # Create a bar chart
+                       # Create a bar chart
                         fig_changes = go.Figure()
                         fig_changes.add_trace(go.Bar(
-                            x=symbols,
-                            y=changes,
-                            marker_color=colors,
-                            text=[f"{c:+.2f}%" for c in changes],
+                            x=symbols,  # List of stock symbols
+                            y=changes,  # List of percentage changes
+                            marker_color=colors,  # List of colors (green/red)
+                            text=[f"{c:+.2f}%" for c in changes],  # Display text on bars
                             textposition="auto"
                         ))
                         
+                        # Update layout for better visualization
                         fig_changes.update_layout(
                             title="Price Change (%)",
                             xaxis_title="Stock",
@@ -2379,7 +2380,9 @@ else:
                             height=400,
                         )
                         
-                        st.plotly_chart(fig_changes, use_container_width=True)
+                        # Display the chart
+                        st.plotly_chart(fig_changes, use_container_width=True) 
+                                               
                         
                         # Market Cap comparison
                         st.subheader("Market Capitalization Comparison")
