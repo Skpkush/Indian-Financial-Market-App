@@ -2346,15 +2346,18 @@ else:
                             
                             # Extract the numeric change value from the HTML string
                             change_str = item["Change"]
-                            if isinstance(change_str, str) and ">" in change_str and "%" in change_str:
-                                # Extract and clean the change value
-                                change_value_str = change_str.split(">")[1].split("%")[0]
-                                # Remove any commas before converting to float (for Indian number formats)
-                                change_value = float(change_value_str.replace(",", ""))
-                            else:
-                                # If the format is unexpected, default to 0
-                                change_value = 0.0
-                                
+                            try:
+                                if isinstance(change_str, str) and ">" in change_str and "%" in change_str:
+                                    # Extract the numeric value from the HTML string
+                                    change_value_str = change_str.split(">")[1].split("%")[0]
+                                    # Remove any commas before converting to float (for Indian number formats)
+                                    change_value = float(change_value_str.replace(",", ""))
+                                else:
+                                    # If the format is unexpected, default to 0
+                                    change_value = 0.0
+                            except (ValueError, IndexError):
+                                # Handle cases where extraction fails
+                                change_value = 0.0    
                             changes.append(change_value)
                             colors.append("green" if change_value >= 0 else "red")
                         
