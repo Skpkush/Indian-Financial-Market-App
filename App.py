@@ -2295,9 +2295,11 @@ else:
                     elif sort_by == "Price Change (High to Low)":
                         # Extract numeric values for sorting (from the Change column HTML)
                         filtered_df["Change Numeric"] = filtered_df["Change"].apply(
-                            lambda x: float(x.split(">")[1].split("%")[0]) if "%" in str(x) else 0
+                        lambda x: float(x.split(">")[1].split("%")[0]) if "%" in str(x) else 0
                         )
+                        # Sort the dataframe based on the numeric change values
                         filtered_df = filtered_df.sort_values("Change Numeric", ascending=False)
+                        # Drop the temporary numeric column after sorting
                         filtered_df = filtered_df.drop("Change Numeric", axis=1)
                     elif sort_by == "P/E Ratio (Low to High)":
                         # Extract numeric values for sorting
