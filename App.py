@@ -2346,13 +2346,14 @@ else:
                             
                             # Extract the numeric change value from the HTML string
                             change_str = item["Change"]
-                            if "span" in change_str:
+                            if isinstance(change_str, str) and ">" in change_str and "%" in change_str:
                                 # Extract and clean the change value
                                 change_value_str = change_str.split(">")[1].split("%")[0]
                                 # Remove any commas before converting to float (for Indian number formats)
                                 change_value = float(change_value_str.replace(",", ""))
                             else:
-                                change_value = 0
+                                # If the format is unexpected, default to 0
+                                change_value = 0.0
                                 
                             changes.append(change_value)
                             colors.append("green" if change_value >= 0 else "red")
