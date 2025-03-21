@@ -2289,7 +2289,8 @@ else:
                     elif sort_by == "Market Cap (High to Low)":
                         # Extract numeric values for sorting
                         filtered_df["Market Cap Numeric"] = filtered_df["Market Cap"].apply(
-                            lambda x: float(x.replace("₹", "").replace("B", "")) if "₹" in str(x) else 0
+                            lambda x: float(str(x).replace("₹", "").replace("B", "").replace(",", "")) 
+                            if "₹" in str(x) and "B" in str(x) else 0.0
                         )
                         filtered_df = filtered_df.sort_values("Market Cap Numeric", ascending=False)
                         filtered_df = filtered_df.drop("Market Cap Numeric", axis=1)
