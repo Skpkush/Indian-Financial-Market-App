@@ -2220,10 +2220,19 @@ else:
             nifty_data = []
             for symbol, info in stocks_info.items():
                 if info.get('price') != 'N/A':
+                     # Format the price
                     price_str = f"₹{info['price']:,.2f}" if isinstance(info['price'], (int, float)) else "N/A"
-                    change = info['change']
-                    change_str = f"{change:.2f}%" if isinstance(change, (int, float)) else "N/A"
-                    change_color = "green" if isinstance(change, (int, float)) and change > 0 else "red"
+    
+                    # Handle the change value
+                    try:
+                        # Convert change to float if it's a string or already a number
+                        change = float(info['change']) if isinstance(info['change'], (str, int, float)) else 0.0
+                        change_str = f"{change:.2f}%"
+                        change_color = "green" if change > 0 else "red"
+                    except (ValueError, TypeError):
+                        # Handle cases where change is not a valid number
+                        change_str = "N/A"
+                        change_color = "black"  # Default color for invalid values
                     
                     market_cap = info['marketCap']
                     market_cap_str = f"₹{market_cap/1e9:,.2f}B" if isinstance(market_cap, (int, float)) else "N/A"
@@ -2274,28 +2283,30 @@ else:
                     # Apply filters
                     filtered_df = nifty_df.copy()
                     
-                    # Filter by sector
+                    # Filter by sector    
                     if selected_sector != "All Sectors":
                         filtered_df = filtered_df[filtered_df["Sector"] == selected_sector]
                     
                     # Filter by dividend
                     if show_dividend:
                         filtered_df = filtered_df[filtered_df["Dividend Yield"] != "N/A" and filtered_df["Dividend Yield"] != "0.00%"]
-                    
+
                     # Sort the dataframe
                     if sort_by == "Company Name":
                         filtered_df = filtered_df.sort_values("Company")
                     elif sort_by == "Market Cap (High to Low)":
-                        # Extract numeric values for sorting
+                    # Extract numeric values for sorting
                         filtered_df["Market Cap Numeric"] = filtered_df["Market Cap"].apply(
-                            lambda x: float(x.replace("₹", "").replace("B", "")) if "₹" in str(x) else 0
+                            lambda x: float(str(x).replace("₹", "").replace("B", "").replace(",", "")) 
+                            if "₹" in str(x) and "B" in str(x) else 0
                         )
                         filtered_df = filtered_df.sort_values("Market Cap Numeric", ascending=False)
                         filtered_df = filtered_df.drop("Market Cap Numeric", axis=1)
                     elif sort_by == "Price Change (High to Low)":
                         # Extract numeric values for sorting (from the Change column HTML)
                         filtered_df["Change Numeric"] = filtered_df["Change"].apply(
-                        lambda x: float(x.split(">")[1].split("%")[0]) if "%" in str(x) else 0
+                            lambda x: float(str(x).split(">")[1].split("%")[0]) 
+                            if "%" in str(x) else 0
                         )
                         # Sort the dataframe based on the numeric change values
                         filtered_df = filtered_df.sort_values("Change Numeric", ascending=False)
@@ -2308,7 +2319,7 @@ else:
                         )
                         filtered_df = filtered_df.sort_values("PE Numeric")
                         filtered_df = filtered_df.drop("PE Numeric", axis=1)
-                    
+
                     # Display the filtered dataframe
                     st.dataframe(filtered_df, use_container_width=True)
                     
