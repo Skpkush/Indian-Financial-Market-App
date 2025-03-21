@@ -2248,7 +2248,7 @@ else:
                         "Company": info['name'],
                         "Sector": info['sector'],
                         "Price": price_str,
-                        "Change": change_str',
+                        "Change": change_str,
                         "Market Cap": market_cap_str,
                         "P/E Ratio": pe_str,
                         "Dividend Yield": dividend_str
