@@ -2348,9 +2348,7 @@ else:
                             change_str = item["Change"]
                             if isinstance(change_str, str) and ">" in change_str and "%" in change_str:
                                 # Extract and clean the change value
-                                change_value_str = change_str.split(">")[1].split("%")[0] 
-                                if ">" in change_str and "%" in change_str 
-                                else "0"
+                                change_value_str = change_str.split(">")[1].split("%")[0]
                                 # Remove any commas before converting to float (for Indian number formats)
                                 change_value = float(change_value_str.replace(",", ""))
                             else:
