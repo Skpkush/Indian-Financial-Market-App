@@ -128,7 +128,7 @@ def get_stock_data(ticker, start_date, end_date):
             return None, None
         return df, stock.info
     except Exception as e:
-        st.error(f"Error retrieving data: {e}")
+        st.error(f"Error retrieving data for {ticker}: {type(e).__name__}: {e}")
         return None, None
 
 # Function to add technical indicators to stock data
@@ -172,7 +172,7 @@ def add_technical_indicators(df):
     ).average_true_range()
     
     # Calculate daily returns
-    df_with_indicators['Daily_Return'] = df_with_indicators['Close'].pct_change() * 100
+    df_with_indicators['Daily_Return'] = df_with_indicators['Close'].pct_change(fill_method=None) * 100
     
     # Calculate volatility (20-day rolling standard deviation of returns)
     df_with_indicators['Volatility'] = df_with_indicators['Daily_Return'].rolling(window=20).std()
@@ -238,7 +238,7 @@ def get_correlation_analysis(ticker, benchmark_tickers, start_date, end_date):
             st.warning(f"Could not fetch data for {t}: {e}")
     
     # Calculate daily returns for correlation
-    returns_data = correlation_data.pct_change().dropna()
+    returns_data = correlation_data.pct_change(fill_method=None).dropna()
     
     # Calculate correlation matrix
     correlation_matrix = returns_data.corr()
@@ -689,8 +689,11 @@ if st.session_state.fetch_requested:
                 
                 with col1:
                     ma_status = "Above" if last_close > last_ma50 else "Below"
-                    pct_diff = ((last_close / last_ma50) - 1) * 100
-                    st.metric("Price vs MA50", f"{ma_status} MA50", f"{pct_diff:.2f}%")
+                    if last_ma50 and not pd.isna(last_ma50) and last_ma50 != 0:
+                        pct_diff = ((last_close / last_ma50) - 1) * 100
+                        st.metric("Price vs MA50", f"{ma_status} MA50", f"{pct_diff:.2f}%")
+                    else:
+                        st.metric("Price vs MA50", "N/A")
                 
                 with col2:
                     ma_trend = "Bullish" if last_ma20 > last_ma50 else "Bearish"
@@ -1189,7 +1192,7 @@ if st.session_state.fetch_requested:
             # Calculate additional metrics
             if not stock_data.empty:
                 # Daily returns
-                stock_data['Daily Return'] = stock_data['Close'].pct_change() * 100
+                stock_data['Daily Return'] = stock_data['Close'].pct_change(fill_method=None) * 100
                 
                 # Moving averages
                 stock_data['MA5'] = stock_data['Close'].rolling(window=5).mean()
@@ -1262,7 +1265,7 @@ if st.session_state.fetch_requested:
                     returns_df = stock_data.copy()
                     
                     # Calculate returns
-                    returns_df['Daily Return'] = returns_df['Close'].pct_change() * 100
+                    returns_df['Daily Return'] = returns_df['Close'].pct_change(fill_method=None) * 100
                     returns_df['Log Return'] = np.log(returns_df['Close'] / returns_df['Close'].shift(1)) * 100
                     
                     # Remove NaNs
@@ -1565,7 +1568,7 @@ if st.session_state.fetch_requested:
                 if not stock_data.empty:
                     # Calculate daily returns for risk analysis
                     risk_df = stock_data.copy()
-                    risk_df['Daily Return'] = risk_df['Close'].pct_change()
+                    risk_df['Daily Return'] = risk_df['Close'].pct_change(fill_method=None)
                     risk_df = risk_df.dropna()
                     
                     # Calculate key risk metrics
@@ -1799,7 +1802,7 @@ if st.session_state.fetch_requested:
                 stock_data['Day_of_Week'] = stock_data.index.dayofweek
                 
                 # Monthly Returns Analysis
-                monthly_returns = stock_data.groupby('Month')['Close'].pct_change().groupby(stock_data['Month']).mean() * 100
+                monthly_returns = stock_data.groupby('Month')['Close'].pct_change(fill_method=None).groupby(stock_data['Month']).mean() * 100
                 
                 # Create a dataframe for monthly seasonality
                 monthly_df = pd.DataFrame(monthly_returns).reset_index()
@@ -1827,46 +1830,49 @@ if st.session_state.fetch_requested:
             with quant_col2:
                 st.write("### Return Distribution Analysis")
 
-                # Calculate daily and monthly returns for distribution analysis
-                daily_returns = stock_data['Close'].pct_change().dropna() * 100
-                
-                # Fit a normal distribution
-                mu, std = norm.fit(daily_returns)
-                
-                # Create histogram with normal distribution overlay
-                fig = px.histogram(daily_returns, 
-                                  nbins=50, 
-                                  title=f"Return Distribution Analysis for {ticker}",
-                                  labels={'value': 'Daily Return (%)', 'count': 'Frequency'},
-                                  opacity=0.7,
-                                  color_discrete_sequence=['lightblue'])
-                
-                # Add normal distribution curve
-                x = np.linspace(daily_returns.min(), daily_returns.max(), 100)
-                y = norm.pdf(x, mu, std) * len(daily_returns) * (daily_returns.max() - daily_returns.min()) / 50
-                
-                fig.add_scatter(x=x, y=y, mode='lines', name='Normal Distribution', line=dict(color='red'))
-                fig.update_layout(showlegend=True)
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Return statistics
-                st.write("#### Return Statistics")
-                stat_col1, stat_col2 = st.columns(2)
-                
-                with stat_col1:
-                    st.metric("Mean Return (%)", f"{mu:.2f}%")
-                    st.metric("Standard Deviation (%)", f"{std:.2f}%")
-                    
-                with stat_col2:
-                    # Calculate skewness and kurtosis
-                    skewness = scipy_skew(daily_returns)
-                    kurt = scipy_kurtosis(daily_returns)
-                    
-                    st.metric("Skewness", f"{skewness:.2f}")
-                    st.metric("Kurtosis", f"{kurt:.2f}")
-                
-                st.write(f"**Interpretation:** Skewness of {skewness:.2f} indicates {'positive skew (more extreme positive returns)' if skewness > 0 else 'negative skew (more extreme negative returns)'}. Kurtosis of {kurt:.2f} suggests {'fatter tails than normal distribution (more outliers)' if kurt > 0 else 'thinner tails than normal distribution (fewer outliers)'}.")
+                # Calculate daily returns for distribution analysis
+                daily_returns = stock_data['Close'].pct_change(fill_method=None).dropna() * 100
+
+                if len(daily_returns) < 2 or daily_returns.std() == 0:
+                    st.info("Not enough variation in returns to fit a distribution.")
+                else:
+                    # Fit a normal distribution
+                    mu, std = norm.fit(daily_returns)
+
+                    # Create histogram with normal distribution overlay
+                    fig = px.histogram(daily_returns,
+                                      nbins=50,
+                                      title=f"Return Distribution Analysis for {ticker}",
+                                      labels={'value': 'Daily Return (%)', 'count': 'Frequency'},
+                                      opacity=0.7,
+                                      color_discrete_sequence=['lightblue'])
+
+                    # Add normal distribution curve
+                    x = np.linspace(daily_returns.min(), daily_returns.max(), 100)
+                    y = norm.pdf(x, mu, std) * len(daily_returns) * (daily_returns.max() - daily_returns.min()) / 50
+
+                    fig.add_scatter(x=x, y=y, mode='lines', name='Normal Distribution', line=dict(color='red'))
+                    fig.update_layout(showlegend=True)
+
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Return statistics
+                    st.write("#### Return Statistics")
+                    stat_col1, stat_col2 = st.columns(2)
+
+                    with stat_col1:
+                        st.metric("Mean Return (%)", f"{mu:.2f}%")
+                        st.metric("Standard Deviation (%)", f"{std:.2f}%")
+
+                    with stat_col2:
+                        # Calculate skewness and kurtosis
+                        skewness = scipy_skew(daily_returns)
+                        kurt = scipy_kurtosis(daily_returns)
+
+                        st.metric("Skewness", f"{skewness:.2f}")
+                        st.metric("Kurtosis", f"{kurt:.2f}")
+
+                    st.write(f"**Interpretation:** Skewness of {skewness:.2f} indicates {'positive skew (more extreme positive returns)' if skewness > 0 else 'negative skew (more extreme negative returns)'}. Kurtosis of {kurt:.2f} suggests {'fatter tails than normal distribution (more outliers)' if kurt > 0 else 'thinner tails than normal distribution (fewer outliers)'}.")
                 
             # Hurst Exponent Analysis (Bottom of the page)
             st.write("### Market Efficiency Analysis - Hurst Exponent")
@@ -1981,8 +1987,8 @@ if st.session_state.fetch_requested:
                                 st.write(f"**Relative Performance:** {ticker} {'outperformed' if event_return > nifty_return else 'underperformed'} NIFTY 50 by {abs(event_return - nifty_return):.2f}% during this event.")
 
                                 # Volatility comparison
-                                ticker_vol = event_data.loc[event_data.index >= event_start, 'Close'].pct_change().std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
-                                nifty_vol = nifty_data.loc[nifty_data.index >= event_start, 'Close'].pct_change().std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
+                                ticker_vol = event_data.loc[event_data.index >= event_start, 'Close'].pct_change(fill_method=None).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
+                                nifty_vol = nifty_data.loc[nifty_data.index >= event_start, 'Close'].pct_change(fill_method=None).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
 
                                 st.write(f"**Volatility During Event:** {ticker}: {ticker_vol:.2f}%, NIFTY 50: {nifty_vol:.2f}%")
                                 if nifty_vol and nifty_vol > 0:
@@ -1994,7 +2000,7 @@ if st.session_state.fetch_requested:
                     else:
                         st.error(f"No data available for {ticker} during this event period.")
                 except Exception as e:
-                    st.error(f"Error analyzing event data: {e}")
+                    st.error(f"Error analyzing event data: {type(e).__name__}: {e}")
                     
             with adv_tab2:
                 st.write("### Pair Trading Analysis")
@@ -2096,7 +2102,7 @@ if st.session_state.fetch_requested:
                     else:
                         st.error(f"Insufficient data for comparative analysis between {ticker} and {pair_stock}.")
                 except Exception as e:
-                    st.error(f"Error in pair trading analysis: {e}")
+                    st.error(f"Error in pair trading analysis: {type(e).__name__}: {e}")
                     
             with adv_tab3:
                 st.write("### Volatility Analysis")
@@ -2109,7 +2115,7 @@ if st.session_state.fetch_requested:
                 vol_df = pd.DataFrame(index=stock_data.index)
                 
                 for window in vol_windows:
-                    vol_df[f'{window}-Day Vol'] = stock_data['Close'].pct_change().rolling(window=window).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
+                    vol_df[f'{window}-Day Vol'] = stock_data['Close'].pct_change(fill_method=None).rolling(window=window).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
                 
                 # Plot volatility
                 fig = px.line(title="Historical Volatility (Annualized)")
@@ -2134,7 +2140,7 @@ if st.session_state.fetch_requested:
                 vol_df.loc[vol_df['30-Day Vol'] < low_vol_threshold, 'Regime'] = 'Low Volatility'
                 
                 # Calculate returns by regime
-                vol_df['Return'] = stock_data['Close'].pct_change() * 100
+                vol_df['Return'] = stock_data['Close'].pct_change(fill_method=None) * 100
                 
                 # Group by regime
                 regime_returns = vol_df.groupby('Regime')['Return'].agg(['mean', 'std', 'count'])
