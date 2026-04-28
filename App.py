@@ -5,14 +5,12 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
-import base64
-from io import StringIO
-import json
-import requests
 import ta  # Technical analysis library
 import calendar
-from scipy.stats import norm, skew, kurtosis
-from nsetools import Nse
+from scipy.stats import norm, skew as scipy_skew, kurtosis as scipy_kurtosis
+
+# Number of trading days in a year (used for annualizing volatility, returns, etc.)
+TRADING_DAYS_PER_YEAR = 252
 
 # Set page configuration
 st.set_page_config(
@@ -25,14 +23,17 @@ st.set_page_config(
 st.title("Indian Financial Market APP")
 st.markdown("Access and analyze financial data for the Nifty 50 stocks from the Indian Stock Market.")
 
-# Function to download dataframe as CSV
-def get_csv_download_link(df, filename="stock_data.csv", text="Download CSV"):
-    csv = df.to_csv(index=True)
-    b64 = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">{text}</a>'
-    return href
+# Render a CSV download button using Streamlit's safe download component.
+def render_csv_download(df, filename="stock_data.csv", label="Download CSV", key=None):
+    st.download_button(
+        label=label,
+        data=df.to_csv(index=True).encode("utf-8"),
+        file_name=filename,
+        mime="text/csv",
+        key=key,
+    )
 
-# Nifty 50 stocks (as of March 2025)
+# Nifty 50 stocks
 @st.cache_data(ttl=86400)  # Cache for 24 hours
 def get_nifty50_stocks():
     # This is the list of Nifty 50 stocks with their Yahoo Finance symbols
@@ -250,9 +251,9 @@ def get_correlation_analysis(ticker, benchmark_tickers, start_date, end_date):
         # Calculate covariance and variance
         covariance = stock_returns.cov(benchmark_returns)
         benchmark_variance = benchmark_returns.var()
-        
-        # Calculate beta
-        beta = covariance / benchmark_variance
+
+        # Calculate beta (guard against zero variance benchmark)
+        beta = covariance / benchmark_variance if benchmark_variance and benchmark_variance > 0 else None
     else:
         beta = None
     
@@ -331,26 +332,30 @@ with st.sidebar:
     today = datetime.now()
     one_year_ago = today - timedelta(days=365)
     
-    # Date range selection
+    # Initialize default start date in session state on first render
+    if "start_date" not in st.session_state:
+        st.session_state.start_date = one_year_ago.date()
+
+    # Date range selection (date_input uses keyed session state so quick-select buttons work)
     date_cols = st.columns(2)
     with date_cols[0]:
-        start_date = st.date_input("Start Date", one_year_ago)
+        start_date = st.date_input("Start Date", key="start_date")
     with date_cols[1]:
         end_date = st.date_input("End Date", today)
-    
+
     # Quick date selection buttons
     period_cols = st.columns(3)
     with period_cols[0]:
         if st.button("1M"):
-            st.session_state.start_date = today - timedelta(days=30)
+            st.session_state.start_date = (today - timedelta(days=30)).date()
             st.rerun()
     with period_cols[1]:
         if st.button("3M"):
-            st.session_state.start_date = today - timedelta(days=90)
+            st.session_state.start_date = (today - timedelta(days=90)).date()
             st.rerun()
     with period_cols[2]:
         if st.button("1Y"):
-            st.session_state.start_date = today - timedelta(days=365)
+            st.session_state.start_date = (today - timedelta(days=365)).date()
             st.rerun()
     
     # Validate date range
@@ -1176,7 +1181,7 @@ if st.session_state.fetch_requested:
             st.dataframe(stock_data)
             
             # Provide download link
-            st.markdown(get_csv_download_link(stock_data, f"{ticker}_data_{start_date}_to_{end_date}.csv", "Download Data as CSV"), unsafe_allow_html=True)
+            render_csv_download(stock_data, f"{ticker}_data_{start_date}_to_{end_date}.csv", "Download Data as CSV", key="dl_historical")
         
         with tab3:
             st.subheader("Key Financial Metrics")
@@ -1236,7 +1241,7 @@ if st.session_state.fetch_requested:
                 st.plotly_chart(fig_vol, use_container_width=True)
                 
                 # Provide metrics download
-                st.markdown(get_csv_download_link(metrics_data, f"{ticker}_metrics_{start_date}_to_{end_date}.csv", "Download Metrics as CSV"), unsafe_allow_html=True)
+                render_csv_download(metrics_data, f"{ticker}_metrics_{start_date}_to_{end_date}.csv", "Download Metrics as CSV", key="dl_metrics")
         
         with tab4:
             st.subheader("Financial Metrics")
@@ -1567,10 +1572,10 @@ if st.session_state.fetch_requested:
                     daily_returns = risk_df['Daily Return']
                     
                     # Annual return calculations
-                    annual_return = daily_returns.mean() * 252 * 100  # 252 trading days in a year
-                    
+                    annual_return = daily_returns.mean() * TRADING_DAYS_PER_YEAR * 100
+
                     # Volatility (annualized)
-                    volatility = daily_returns.std() * np.sqrt(252) * 100
+                    volatility = daily_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
                     
                     # Downside risk metrics
                     negative_returns = daily_returns[daily_returns < 0]
@@ -1581,13 +1586,14 @@ if st.session_state.fetch_requested:
                     
                     # Sharpe Ratio (Assuming risk-free rate of 4% for Indian market)
                     risk_free_rate = 0.04  # 4% annual risk-free rate (adjust as needed)
-                    daily_rf = ((1 + risk_free_rate) ** (1/252)) - 1
-                    sharpe_ratio = (daily_returns.mean() - daily_rf) / daily_returns.std() * np.sqrt(252)
-                    
+                    daily_rf = ((1 + risk_free_rate) ** (1/TRADING_DAYS_PER_YEAR)) - 1
+                    daily_std = daily_returns.std()
+                    sharpe_ratio = (daily_returns.mean() - daily_rf) / daily_std * np.sqrt(TRADING_DAYS_PER_YEAR) if daily_std and daily_std > 0 else 0
+
                     # Sortino Ratio (using downside deviation)
                     target_return = daily_rf  # Usually risk-free rate
                     downside_returns = daily_returns[daily_returns < target_return]
-                    downside_deviation = downside_returns.std() * np.sqrt(252)
+                    downside_deviation = downside_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
                     sortino_ratio = (daily_returns.mean() - daily_rf) / downside_deviation if len(downside_returns) > 0 and downside_deviation > 0 else 0
                     
                     # Value at Risk (VaR) - 95% confidence
@@ -1655,7 +1661,7 @@ if st.session_state.fetch_requested:
                     
                     # Number of simulations
                     num_simulations = 100
-                    num_days = 252  # Simulate one year ahead
+                    num_days = TRADING_DAYS_PER_YEAR  # Simulate one year ahead
                     
                     # Get parameters for simulation from historical data
                     mu = daily_returns.mean()
@@ -1812,8 +1818,11 @@ if st.session_state.fetch_requested:
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # Best and worst months
-                st.write(f"**Best Month:** {monthly_df.iloc[0]['Month']} ({monthly_df.iloc[0]['Average Return (%)']:.2f}%)")
-                st.write(f"**Worst Month:** {monthly_df.iloc[-1]['Month']} ({monthly_df.iloc[-1]['Average Return (%)']:.2f}%)")
+                if not monthly_df.empty:
+                    st.write(f"**Best Month:** {monthly_df.iloc[0]['Month']} ({monthly_df.iloc[0]['Average Return (%)']:.2f}%)")
+                    st.write(f"**Worst Month:** {monthly_df.iloc[-1]['Month']} ({monthly_df.iloc[-1]['Average Return (%)']:.2f}%)")
+                else:
+                    st.info("Not enough data to compute monthly seasonality.")
                 
             with quant_col2:
                 st.write("### Return Distribution Analysis")
@@ -1850,9 +1859,6 @@ if st.session_state.fetch_requested:
                     st.metric("Standard Deviation (%)", f"{std:.2f}%")
                     
                 with stat_col2:
-                    # Import skew and kurtosis functions directly from scipy.stats to avoid naming conflicts
-                    from scipy.stats import skew as scipy_skew, kurtosis as scipy_kurtosis
-                    
                     # Calculate skewness and kurtosis
                     skewness = scipy_skew(daily_returns)
                     kurt = scipy_kurtosis(daily_returns)
@@ -1926,13 +1932,22 @@ if st.session_state.fetch_requested:
                     
                     if event_data is not None and not event_data.empty:
                         # Normalize to 100 at the event start date
-                        event_start_idx = event_data.index[event_data.index >= event_start][0]
-                        event_data['Normalized'] = event_data['Close'] / event_data.loc[event_start_idx, 'Close'] * 100
-                        
+                        matching_dates = event_data.index[event_data.index >= event_start]
+                        if len(matching_dates) == 0:
+                            st.warning(f"No trading data on or after {event_start} for {ticker}.")
+                            st.stop()
+                        event_start_idx = matching_dates[0]
+                        base_close = event_data.loc[event_start_idx, 'Close']
+                        if base_close == 0:
+                            st.warning("Cannot normalize prices: base close is zero.")
+                            st.stop()
+                        event_data['Normalized'] = event_data['Close'] / base_close * 100
+
                         # Get NIFTY 50 data for comparison
                         nifty_data, _ = get_stock_data("^NSEI", pre_event_start, event_end)
-                        if nifty_data is not None and not nifty_data.empty:
-                            nifty_data['Normalized'] = nifty_data['Close'] / nifty_data.loc[event_start_idx, 'Close'] * 100
+                        if nifty_data is not None and not nifty_data.empty and event_start_idx in nifty_data.index:
+                            nifty_base = nifty_data.loc[event_start_idx, 'Close']
+                            nifty_data['Normalized'] = nifty_data['Close'] / nifty_base * 100 if nifty_base else nifty_data['Close']
                             
                             # Plot performance
                             fig = px.line(title=f"Performance During {selected_event}")
@@ -1946,25 +1961,34 @@ if st.session_state.fetch_requested:
                             fig.update_layout(xaxis_title="Date", yaxis_title="Normalized Price (100 = Event Start)")
                             st.plotly_chart(fig, use_container_width=True)
                             
-                            # Calculate returns during the event
-                            event_return = (event_data.loc[event_data.index <= event_end, 'Normalized'].iloc[-1] / 100 - 1) * 100
-                            nifty_return = (nifty_data.loc[nifty_data.index <= event_end, 'Normalized'].iloc[-1] / 100 - 1) * 100
-                            
-                            # Display metrics
-                            event_col1, event_col2 = st.columns(2)
-                            with event_col1:
-                                st.metric(f"{ticker} Return", f"{event_return:.2f}%")
-                            with event_col2:
-                                st.metric("NIFTY 50 Return", f"{nifty_return:.2f}%")
-                            
-                            st.write(f"**Relative Performance:** {ticker} {'outperformed' if event_return > nifty_return else 'underperformed'} NIFTY 50 by {abs(event_return - nifty_return):.2f}% during this event.")
-                            
-                            # Volatility comparison
-                            ticker_vol = event_data.loc[event_data.index >= event_start, 'Close'].pct_change().std() * np.sqrt(252) * 100
-                            nifty_vol = nifty_data.loc[nifty_data.index >= event_start, 'Close'].pct_change().std() * np.sqrt(252) * 100
-                            
-                            st.write(f"**Volatility During Event:** {ticker}: {ticker_vol:.2f}%, NIFTY 50: {nifty_vol:.2f}%")
-                            st.write(f"**Volatility Ratio:** {ticker_vol/nifty_vol:.2f}x NIFTY 50 volatility")
+                            # Calculate returns during the event (guard against empty filtered series)
+                            ticker_event_norm = event_data.loc[event_data.index <= event_end, 'Normalized']
+                            nifty_event_norm = nifty_data.loc[nifty_data.index <= event_end, 'Normalized']
+
+                            if len(ticker_event_norm) == 0 or len(nifty_event_norm) == 0:
+                                st.warning("Insufficient data within the event window to calculate returns.")
+                            else:
+                                event_return = (ticker_event_norm.iloc[-1] / 100 - 1) * 100
+                                nifty_return = (nifty_event_norm.iloc[-1] / 100 - 1) * 100
+
+                                # Display metrics
+                                event_col1, event_col2 = st.columns(2)
+                                with event_col1:
+                                    st.metric(f"{ticker} Return", f"{event_return:.2f}%")
+                                with event_col2:
+                                    st.metric("NIFTY 50 Return", f"{nifty_return:.2f}%")
+
+                                st.write(f"**Relative Performance:** {ticker} {'outperformed' if event_return > nifty_return else 'underperformed'} NIFTY 50 by {abs(event_return - nifty_return):.2f}% during this event.")
+
+                                # Volatility comparison
+                                ticker_vol = event_data.loc[event_data.index >= event_start, 'Close'].pct_change().std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
+                                nifty_vol = nifty_data.loc[nifty_data.index >= event_start, 'Close'].pct_change().std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
+
+                                st.write(f"**Volatility During Event:** {ticker}: {ticker_vol:.2f}%, NIFTY 50: {nifty_vol:.2f}%")
+                                if nifty_vol and nifty_vol > 0:
+                                    st.write(f"**Volatility Ratio:** {ticker_vol/nifty_vol:.2f}x NIFTY 50 volatility")
+                                else:
+                                    st.write("**Volatility Ratio:** N/A (NIFTY 50 volatility is zero)")
                         else:
                             st.error("Could not fetch NIFTY 50 data for comparison.")
                     else:
@@ -1993,22 +2017,31 @@ if st.session_state.fetch_requested:
                     pair_data, _ = get_stock_data(pair_stock, start_date, end_date)
                     
                     if pair_data is not None and not pair_data.empty and not stock_data.empty:
-                        # Merge dataframes
+                        # Merge dataframes (drop rows with missing values to align dates)
                         pair_df = pd.DataFrame({
                             f"{ticker}": stock_data['Close'],
                             f"{pair_stock}": pair_data['Close']
-                        })
-                        
+                        }).dropna()
+
+                        if pair_df.empty:
+                            st.error(f"No overlapping trading dates between {ticker} and {pair_stock}.")
+                            st.stop()
+
                         # Calculate correlation
                         correlation = pair_df.corr().iloc[0, 1]
-                        
+
                         # Display correlation
                         st.metric("Correlation", f"{correlation:.4f}")
-                        
-                        # Normalize prices for visualization
+
+                        # Normalize prices for visualization (guard against zero base price)
+                        ticker_base = pair_df[ticker].iloc[0]
+                        pair_base = pair_df[pair_stock].iloc[0]
+                        if not ticker_base or not pair_base:
+                            st.error("Cannot normalize prices: base price is zero.")
+                            st.stop()
                         normalized_df = pd.DataFrame({
-                            f"{ticker}": pair_df[ticker] / pair_df[ticker].iloc[0] * 100,
-                            f"{pair_stock}": pair_df[pair_stock] / pair_df[pair_stock].iloc[0] * 100
+                            f"{ticker}": pair_df[ticker] / ticker_base * 100,
+                            f"{pair_stock}": pair_df[pair_stock] / pair_base * 100
                         })
                         
                         # Plot normalized prices
@@ -2018,11 +2051,16 @@ if st.session_state.fetch_requested:
                         fig.update_layout(xaxis_title="Date", yaxis_title="Normalized Price (100 = Start)")
                         st.plotly_chart(fig, use_container_width=True)
                         
-                        # Calculate price ratio
-                        pair_df['Ratio'] = pair_df[ticker] / pair_df[pair_stock]
-                        
-                        # Z-score of ratio
-                        pair_df['Ratio_Z'] = (pair_df['Ratio'] - pair_df['Ratio'].mean()) / pair_df['Ratio'].std()
+                        # Calculate price ratio (guard against zero pair-stock prices)
+                        pair_df['Ratio'] = pair_df[ticker] / pair_df[pair_stock].replace(0, np.nan)
+
+                        # Z-score of ratio (guard against zero std)
+                        ratio_std = pair_df['Ratio'].std()
+                        if ratio_std and ratio_std > 0:
+                            pair_df['Ratio_Z'] = (pair_df['Ratio'] - pair_df['Ratio'].mean()) / ratio_std
+                        else:
+                            pair_df['Ratio_Z'] = 0
+                            st.info("Price ratio has zero variance; Z-score is not meaningful.")
                         
                         # Plot ratio and z-score
                         fig1, fig2 = st.columns(2)
@@ -2071,7 +2109,7 @@ if st.session_state.fetch_requested:
                 vol_df = pd.DataFrame(index=stock_data.index)
                 
                 for window in vol_windows:
-                    vol_df[f'{window}-Day Vol'] = stock_data['Close'].pct_change().rolling(window=window).std() * np.sqrt(252) * 100
+                    vol_df[f'{window}-Day Vol'] = stock_data['Close'].pct_change().rolling(window=window).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100
                 
                 # Plot volatility
                 fig = px.line(title="Historical Volatility (Annualized)")
@@ -2100,8 +2138,8 @@ if st.session_state.fetch_requested:
                 
                 # Group by regime
                 regime_returns = vol_df.groupby('Regime')['Return'].agg(['mean', 'std', 'count'])
-                regime_returns['annualized_return'] = regime_returns['mean'] * 252
-                regime_returns['annualized_volatility'] = regime_returns['std'] * np.sqrt(252)
+                regime_returns['annualized_return'] = regime_returns['mean'] * TRADING_DAYS_PER_YEAR
+                regime_returns['annualized_volatility'] = regime_returns['std'] * np.sqrt(TRADING_DAYS_PER_YEAR)
                 regime_returns['sharpe'] = regime_returns['annualized_return'] / regime_returns['annualized_volatility']
                 
                 # Display regime statistics
@@ -2313,7 +2351,7 @@ else:
                     st.dataframe(filtered_df, use_container_width=True)
                     
                     # Download option
-                    st.markdown(get_csv_download_link(filtered_df, "nifty50_stocks.csv", "Download Nifty 50 Data as CSV"), unsafe_allow_html=True)
+                    render_csv_download(filtered_df, "nifty50_stocks.csv", "Download Nifty 50 Data as CSV", key="dl_nifty50")
                 
                 with nifty_tab2:
                     st.write("### Nifty 50 Comparison Charts")
